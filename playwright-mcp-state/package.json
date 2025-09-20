@@ -1,0 +1,15 @@
+{
+  "name": "playwright-mcp-state",
+  "version": "1.0.0",
+  "description": "Playwright MCP with persistent state storage",
+  "main": "custom-playwright-server.js",
+  "scripts": {
+    "save-state": "node save-state.js",
+    "manage": "node manage-session.js",
+    "server": "node custom-playwright-server.js"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0",
+    "@modelcontextprotocol/sdk": "^0.5.0"
+  }
+}

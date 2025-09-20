@@ -1,0 +1,12 @@
+.env
+*.pyc
+__pycache__/
+instance/
+.pytest_cache/
+.coverage
+*.db
+venv/
+env/
+.vscode/
+.idea/
+*.log

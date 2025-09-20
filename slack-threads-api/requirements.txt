@@ -1,0 +1,6 @@
+slack-sdk==3.26.1
+python-dotenv==1.0.0
+Pillow>=10.0.0  # Optional: for image generation in tests
+SQLAlchemy==2.0.25
+psycopg2-binary==2.9.9  # For PostgreSQL
+pymysql==1.1.0  # For MySQL

@@ -1,0 +1,14 @@
+{
+  "name": "retrieve-report",
+  "version": "1.0.0",
+  "description": "Retrieve and save reports from URLs using existing Chrome session",
+  "main": "retrieve_report.js",
+  "scripts": {
+    "start": "node retrieve_report.js"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "author": "",
+  "license": "ISC"
+}
