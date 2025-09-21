@@ -6,7 +6,7 @@ async function retrieveReport(url) {
     console.log('🔧 Connecting to existing Chrome session...\n');
 
     // Use the same persistent context from the other project
-    const userDataDir = path.join('C:', 'Users', 'Split Lease', 'Documents', 'chatgpt-deep-research', 'playwright-mcp-state', 'chrome-persistent-profile');
+    const userDataDir = path.join('C:', 'Users', 'Split Lease', 'Documents', 'gemini-deep-research', 'playwright-mcp-state', 'chrome-persistent-profile');
 
     console.log('📂 Using persistent profile:', userDataDir);
 

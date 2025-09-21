@@ -261,14 +261,14 @@ class ConcurrentDeepResearchOrchestrator:
             'url': url,
             'message': message,
             'scheduled_at': datetime.now().isoformat(),
-            'scheduled_for': (datetime.now() + timedelta(minutes=20)).isoformat()
+            'scheduled_for': (datetime.now() + timedelta(minutes=22)).isoformat()
         })
 
-        retrieval_time = datetime.now() + timedelta(minutes=20)
+        retrieval_time = datetime.now() + timedelta(minutes=22)
         self.logger.info(f"Report retrieval scheduled for {retrieval_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # Create a daemon thread for delayed execution
-        timer = threading.Timer(1200, self.step5_retrieve_and_send_report, args=[url, message])
+        # Create a daemon thread for delayed execution (22 minutes = 1320 seconds)
+        timer = threading.Timer(1320, self.step5_retrieve_and_send_report, args=[url, message])
         timer.daemon = True
         timer.start()
 
@@ -288,7 +288,7 @@ class ConcurrentDeepResearchOrchestrator:
             session_marker = f"{timestamp}_{self.session_id[:8]}"
 
             result = subprocess.run(
-                ["node", "retrieve_report.js", url],
+                ["node", "retrieve_report.js", url],  # Let retrieve_report.js handle Slack sending
                 cwd=str(self.retrieve_report_dir),
                 capture_output=True,
                 text=True,
@@ -321,8 +321,9 @@ class ConcurrentDeepResearchOrchestrator:
 
                         self.logger.info(f"Read report from {latest_report.name}")
 
-                        # Send report to Slack
-                        self.send_report_to_slack(report_content, message)
+                        # Report is sent to Slack by retrieve_report.js
+                        # self.send_report_to_slack(report_content, message)  # Commented out to prevent duplicate
+                        self.logger.info("Report sent via retrieve_report.js")
 
                         # Update database
                         self.mark_report_sent(message['ts'], url)
@@ -432,7 +433,7 @@ Session: {self.session_id[:8]}
 
         self.logger.info("\n" + "=" * 60)
         self.logger.info("WORKFLOW INITIATED SUCCESSFULLY")
-        self.logger.info(f"Session {self.session_id[:8]} scheduled for 20 minutes")
+        self.logger.info(f"Session {self.session_id[:8]} scheduled for 22 minutes")
         self.logger.info("=" * 60 + "\n")
 
         return timer
@@ -488,7 +489,7 @@ def main():
     if timer and isinstance(timer, threading.Timer):
         # Wait for the scheduled task to complete
         orchestrator.logger.info("Waiting for scheduled report retrieval...")
-        timer.join(timeout=1500)  # Wait up to 25 minutes
+        timer.join(timeout=1620)  # Wait up to 27 minutes (22 min + 5 min buffer)
 
         if timer.is_alive():
             orchestrator.logger.warning("Report retrieval timed out")

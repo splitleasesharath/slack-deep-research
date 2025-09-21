@@ -193,7 +193,7 @@ class DeepResearchOrchestrator:
             return None
 
     def step4_schedule_report_retrieval(self, url, message):
-        """Step 4: Schedule report retrieval for 9 minutes later"""
+        """Step 4: Schedule report retrieval for 22 minutes later"""
         logger.info("=" * 60)
         logger.info("STEP 4: Scheduling report retrieval")
         logger.info("=" * 60)
@@ -203,16 +203,16 @@ class DeepResearchOrchestrator:
 
         # Calculate timing
         current_time = datetime.now()
-        report_ready_time = current_time + timedelta(minutes=10)  # Report should be ready after 10 minutes
-        retrieval_time = current_time + timedelta(minutes=9)      # We'll retrieve at 9 minutes
+        report_ready_time = current_time + timedelta(minutes=23)  # Report should be ready after 23 minutes
+        retrieval_time = current_time + timedelta(minutes=22)     # We'll retrieve at 22 minutes
 
         logger.info(f"Current time: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"Report will be ready at: {report_ready_time.strftime('%Y-%m-%d %H:%M:%S')} (10 minutes)")
-        logger.info(f"Retrieval scheduled for: {retrieval_time.strftime('%Y-%m-%d %H:%M:%S')} (9 minutes)")
-        logger.info("Waiting 9 minutes before retrieval...")
+        logger.info(f"Report will be ready at: {report_ready_time.strftime('%Y-%m-%d %H:%M:%S')} (23 minutes)")
+        logger.info(f"Retrieval scheduled for: {retrieval_time.strftime('%Y-%m-%d %H:%M:%S')} (22 minutes)")
+        logger.info("Waiting 22 minutes before retrieval...")
 
-        # Use threading to schedule the delayed task (9 minutes = 540 seconds)
-        timer = threading.Timer(540, self.step5_retrieve_and_send_report, args=[url, message])
+        # Use threading to schedule the delayed task (22 minutes = 1320 seconds)
+        timer = threading.Timer(1320, self.step5_retrieve_and_send_report, args=[url, message])
         timer.daemon = True
         timer.start()
 
@@ -231,7 +231,7 @@ class DeepResearchOrchestrator:
             logger.info(f"Retrieving report from: {url}")
 
             result = subprocess.run(
-                ["node", "retrieve_report.js", url],
+                ["node", "retrieve_report.js", url],  # Let retrieve_report.js handle Slack sending
                 cwd=str(self.retrieve_report_dir),
                 capture_output=True,
                 text=True,
@@ -274,11 +274,11 @@ class DeepResearchOrchestrator:
                         else:
                             logger.warning(f"Max retries ({max_retries}) reached. Sending partial report.")
 
-                    # Send report to Slack
-                    self.send_report_to_slack(report_content, message)
+                    # Report is sent to Slack by retrieve_report.js
+                    # self.send_report_to_slack(report_content, message)  # Commented out to prevent duplicate
 
                     # Message was already marked as processed when URL was retrieved
-                    logger.info("Report sent successfully for already-processed message")
+                    logger.info("Report retrieved and sent via retrieve_report.js")
 
                 else:
                     logger.error("No report files found")
@@ -530,17 +530,17 @@ Report Size: {report_size:,} characters
         self.mark_message_processed(message, report_url=report_url, success=True)
         logger.info("Message marked as processed after URL retrieval")
 
-        # Step 4: Schedule report retrieval for 9 minutes later
+        # Step 4: Schedule report retrieval for 22 minutes later
         self.step4_schedule_report_retrieval(report_url, message)
 
         logger.info("\n" + "=" * 60)
         logger.info("WORKFLOW INITIATED SUCCESSFULLY")
         current_time = datetime.now()
-        report_ready_time = current_time + timedelta(minutes=10)
-        retrieval_time = current_time + timedelta(minutes=9)
+        report_ready_time = current_time + timedelta(minutes=23)
+        retrieval_time = current_time + timedelta(minutes=22)
         logger.info(f"Report URL: {report_url}")
-        logger.info(f"Report will be ready at: {report_ready_time.strftime('%H:%M:%S')} (in 10 minutes)")
-        logger.info(f"Retrieval scheduled for: {retrieval_time.strftime('%H:%M:%S')} (in 9 minutes)")
+        logger.info(f"Report will be ready at: {report_ready_time.strftime('%H:%M:%S')} (in 23 minutes)")
+        logger.info(f"Retrieval scheduled for: {retrieval_time.strftime('%H:%M:%S')} (in 22 minutes)")
         logger.info("The orchestrator will continue running until report is sent")
         logger.info("=" * 60 + "\n")
 
@@ -586,18 +586,18 @@ def main():
 
         # If a report was scheduled, wait for it to complete
         if orchestrator.pending_reports:
-            logger.info("Waiting for scheduled report retrieval (9 minutes)...")
+            logger.info("Waiting for scheduled report retrieval (22 minutes)...")
             logger.info("The process will exit automatically after report is sent")
 
-            # Wait for up to 12 minutes (9 min + 3 min buffer for processing)
-            max_wait = 720  # 12 minutes in seconds
+            # Wait for up to 25 minutes (22 min + 3 min buffer for processing)
+            max_wait = 1500  # 25 minutes in seconds
             start_time = time.time()
 
             while orchestrator.pending_reports and (time.time() - start_time) < max_wait:
                 time.sleep(10)  # Check every 10 seconds
 
             if orchestrator.pending_reports:
-                logger.warning("Report retrieval timed out after 12 minutes")
+                logger.warning("Report retrieval timed out after 25 minutes")
             else:
                 logger.info("All scheduled tasks completed successfully")
         else:
