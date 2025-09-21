@@ -218,10 +218,12 @@ class DeepResearchOrchestrator:
 
         return True
 
-    def step5_retrieve_and_send_report(self, url, message):
-        """Step 5: Retrieve the complete report and send to Slack"""
+    def step5_retrieve_and_send_report(self, url, message, retry_count=0, max_retries=3):
+        """Step 5: Retrieve the complete report and send to Slack with retry mechanism"""
         logger.info("=" * 60)
         logger.info("STEP 5: Retrieving and sending report")
+        if retry_count > 0:
+            logger.info(f"Retry attempt {retry_count}/{max_retries}")
         logger.info("=" * 60)
 
         try:
@@ -252,7 +254,25 @@ class DeepResearchOrchestrator:
                     with open(latest_report, 'r', encoding='utf-8') as f:
                         report_content = f.read()
 
-                    logger.info(f"Read report from {latest_report.name}")
+                    logger.info(f"Read report from {latest_report.name} ({len(report_content)} characters)")
+
+                    # Check if report seems incomplete (too short or contains error messages)
+                    if self._is_report_incomplete(report_content):
+                        logger.warning("Report appears incomplete or not ready")
+
+                        if retry_count < max_retries:
+                            # Schedule retry after 5 minutes
+                            logger.info(f"Scheduling retry {retry_count + 1}/{max_retries} in 5 minutes...")
+                            timer = threading.Timer(
+                                300,  # 5 minutes
+                                self.step5_retrieve_and_send_report,
+                                args=[url, message, retry_count + 1, max_retries]
+                            )
+                            timer.daemon = True
+                            timer.start()
+                            return  # Don't remove from pending reports yet
+                        else:
+                            logger.warning(f"Max retries ({max_retries}) reached. Sending partial report.")
 
                     # Send report to Slack
                     self.send_report_to_slack(report_content, message)
@@ -263,17 +283,82 @@ class DeepResearchOrchestrator:
                 else:
                     logger.error("No report files found")
 
+                    if retry_count < max_retries:
+                        logger.info(f"Scheduling retry {retry_count + 1}/{max_retries} in 5 minutes...")
+                        timer = threading.Timer(
+                            300,  # 5 minutes
+                            self.step5_retrieve_and_send_report,
+                            args=[url, message, retry_count + 1, max_retries]
+                        )
+                        timer.daemon = True
+                        timer.start()
+                        return
+
             else:
                 logger.error(f"Report retrieval failed: {result.stderr}")
+
+                if retry_count < max_retries:
+                    logger.info(f"Scheduling retry {retry_count + 1}/{max_retries} in 5 minutes...")
+                    timer = threading.Timer(
+                        300,  # 5 minutes
+                        self.step5_retrieve_and_send_report,
+                        args=[url, message, retry_count + 1, max_retries]
+                    )
+                    timer.daemon = True
+                    timer.start()
+                    return
 
         except Exception as e:
             logger.error(f"Error in report retrieval and sending: {e}")
 
+            if retry_count < max_retries:
+                logger.info(f"Scheduling retry {retry_count + 1}/{max_retries} in 5 minutes...")
+                timer = threading.Timer(
+                    300,  # 5 minutes
+                    self.step5_retrieve_and_send_report,
+                    args=[url, message, retry_count + 1, max_retries]
+                )
+                timer.daemon = True
+                timer.start()
+                return
+
         finally:
-            # Remove from pending reports
-            if url in self.pending_reports:
-                del self.pending_reports[url]
-                logger.info("Report processing completed and removed from pending queue")
+            # Only remove from pending reports if we're done (no more retries)
+            if retry_count >= max_retries or (url in self.pending_reports and retry_count == 0):
+                if url in self.pending_reports:
+                    del self.pending_reports[url]
+                    logger.info("Report processing completed and removed from pending queue")
+
+    def _is_report_incomplete(self, report_content):
+        """Check if a report seems incomplete or not ready"""
+        # Check for common indicators that report is not ready
+        incomplete_indicators = [
+            "Generating report",
+            "Please wait",
+            "Processing",
+            "Loading",
+            "Analyzing sources",
+            "Research in progress",
+            "Starting research"
+        ]
+
+        # Report is likely incomplete if it's very short
+        if len(report_content) < 1000:
+            return True
+
+        # Check for incomplete indicators
+        content_lower = report_content.lower()
+        for indicator in incomplete_indicators:
+            if indicator.lower() in content_lower:
+                return True
+
+        # Check if report contains mostly source links without actual content
+        lines = report_content.split('\n')
+        source_lines = sum(1 for line in lines if 'http' in line or 'www.' in line)
+        if len(lines) > 10 and source_lines > len(lines) * 0.7:  # More than 70% source links
+            return True
+
+        return False
 
     def send_report_to_slack(self, report_content, original_message):
         """Send the report to Slack as a reply or new message"""
