@@ -10,7 +10,7 @@ import json
 import time
 import subprocess
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import schedule
 import threading
@@ -87,6 +87,34 @@ class DeepResearchOrchestrator:
             ).first()
 
             if message:
+                # Skip system messages (joins, leaves, etc.)
+                system_message_patterns = [
+                    "has joined the channel",
+                    "has left the channel",
+                    "set the channel topic",
+                    "set the channel description",
+                    "pinned a message",
+                    "unpinned a message",
+                    "archived the channel",
+                    "unarchived the channel",
+                    "renamed the channel",
+                    "set the channel purpose",
+                    "cleared the channel topic",
+                    "cleared the channel purpose"
+                ]
+
+                # Check if this is a system message
+                is_system_message = any(pattern in message.text.lower() for pattern in system_message_patterns)
+
+                if is_system_message:
+                    logger.info(f"Skipping system message: {message.text[:100]}...")
+                    # Mark as processed to skip it permanently
+                    message.processed = True
+                    message.processed_at = datetime.now(timezone.utc)
+                    self.db_session.commit()
+                    # Recursively get the next message
+                    return self.step2_get_oldest_unprocessed_message()
+
                 logger.info(f"Found unprocessed message from {message.username}: {message.text[:100]}...")
                 return message
             else:
@@ -165,7 +193,7 @@ class DeepResearchOrchestrator:
             return None
 
     def step4_schedule_report_retrieval(self, url, message):
-        """Step 4: Schedule report retrieval for 20 minutes later"""
+        """Step 4: Schedule report retrieval for 9 minutes later"""
         logger.info("=" * 60)
         logger.info("STEP 4: Scheduling report retrieval")
         logger.info("=" * 60)
@@ -173,12 +201,18 @@ class DeepResearchOrchestrator:
         # Store the URL and message for later processing
         self.pending_reports[url] = message
 
-        # Schedule the retrieval
-        retrieval_time = datetime.now() + timedelta(minutes=20)
-        logger.info(f"Report retrieval scheduled for {retrieval_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        # Calculate timing
+        current_time = datetime.now()
+        report_ready_time = current_time + timedelta(minutes=10)  # Report should be ready after 10 minutes
+        retrieval_time = current_time + timedelta(minutes=9)      # We'll retrieve at 9 minutes
 
-        # Use threading to schedule the delayed task
-        timer = threading.Timer(1200, self.step5_retrieve_and_send_report, args=[url, message])
+        logger.info(f"Current time: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"Report will be ready at: {report_ready_time.strftime('%Y-%m-%d %H:%M:%S')} (10 minutes)")
+        logger.info(f"Retrieval scheduled for: {retrieval_time.strftime('%Y-%m-%d %H:%M:%S')} (9 minutes)")
+        logger.info("Waiting 9 minutes before retrieval...")
+
+        # Use threading to schedule the delayed task (9 minutes = 540 seconds)
+        timer = threading.Timer(540, self.step5_retrieve_and_send_report, args=[url, message])
         timer.daemon = True
         timer.start()
 
@@ -244,37 +278,90 @@ class DeepResearchOrchestrator:
     def send_report_to_slack(self, report_content, original_message):
         """Send the report to Slack as a reply or new message"""
         try:
-            # Truncate report if too long (Slack has a 40000 character limit)
-            if len(report_content) > 39000:
-                report_content = report_content[:39000] + "\n\n... [Report truncated due to length]"
+            # Calculate report size
+            report_size = len(report_content)
+            max_chunk_size = 35000  # Leave room for formatting
 
-            # Create a formatted message
-            formatted_message = f"""📊 **Deep Research Report Generated**
+            # Create header message
+            header_message = f"""📊 **Deep Research Report Generated**
 
 Original Request: {original_message.text[:200]}...
 Requested by: @{original_message.username}
 Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Report Size: {report_size:,} characters
 
 ---
+"""
 
-{report_content}"""
+            # Split report into chunks if needed
+            if report_size <= max_chunk_size:
+                # Single message if report is small enough
+                formatted_message = header_message + report_content
 
-            # Send to Slack
-            if original_message.thread_ts:
-                # Reply to existing thread
-                response = self.slack_client.reply_to_thread(
-                    thread_ts=original_message.thread_ts,
-                    text=formatted_message
-                )
+                # Send to Slack
+                if original_message.thread_ts:
+                    response = self.slack_client.reply_to_thread(
+                        thread_ts=original_message.thread_ts,
+                        text=formatted_message
+                    )
+                else:
+                    response = self.slack_client.send_message(
+                        text=formatted_message,
+                        channel=original_message.channel_id
+                    )
+
+                logger.info("Report sent as single message")
+
             else:
-                # Create new message
-                response = self.slack_client.send_message(
-                    text=formatted_message,
-                    channel=original_message.channel_id
-                )
+                # Split into multiple messages
+                chunks = []
+                current_pos = 0
+
+                # Calculate number of parts
+                num_parts = (report_size // max_chunk_size) + 1
+
+                # Create chunks
+                for i in range(num_parts):
+                    start = i * max_chunk_size
+                    end = min((i + 1) * max_chunk_size, report_size)
+                    chunk = report_content[start:end]
+
+                    # Add continuation markers
+                    if i == 0:
+                        chunk_message = header_message + chunk
+                    else:
+                        chunk_message = f"📄 **Report Continuation (Part {i+1}/{num_parts})**\n\n{chunk}"
+
+                    chunks.append(chunk_message)
+
+                # Send first chunk to establish thread
+                if original_message.thread_ts:
+                    response = self.slack_client.reply_to_thread(
+                        thread_ts=original_message.thread_ts,
+                        text=chunks[0]
+                    )
+                    thread_ts = original_message.thread_ts
+                else:
+                    response = self.slack_client.send_message(
+                        text=chunks[0],
+                        channel=original_message.channel_id
+                    )
+                    thread_ts = response.get('ts') if response and response.get('ok') else None
+
+                # Send remaining chunks as thread replies
+                if thread_ts and response and response.get('ok'):
+                    for i, chunk in enumerate(chunks[1:], 1):
+                        time.sleep(0.5)  # Small delay to avoid rate limits
+                        self.slack_client.reply_to_thread(
+                            thread_ts=thread_ts,
+                            text=chunk
+                        )
+                        logger.info(f"Sent report part {i+1}/{num_parts}")
+
+                logger.info(f"Report sent in {num_parts} parts")
 
             if response and response.get('ok'):
-                logger.info(f"Report sent to Slack successfully")
+                logger.info(f"Report delivery completed successfully")
 
                 # Update database with report details
                 from database_models import SlackMessage
@@ -285,7 +372,7 @@ Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
                 if db_message:
                     db_message.report_sent_to_slack = True
-                    db_message.report_sent_at = datetime.utcnow()
+                    db_message.report_sent_at = datetime.now(timezone.utc)
                     db_message.report_thread_ts = response.get('ts')
                     self.db_session.commit()
 
@@ -308,9 +395,9 @@ Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 # Only mark as processed if successful
                 if success:
                     db_message.processed = True
-                    db_message.processed_at = datetime.utcnow()
+                    db_message.processed_at = datetime.now(timezone.utc)
                     db_message.report_generated = True
-                    db_message.report_generated_at = datetime.utcnow()
+                    db_message.report_generated_at = datetime.now(timezone.utc)
 
                     if report_url:
                         # Store URL in report_content field
@@ -330,8 +417,10 @@ Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
     def run_workflow(self):
         """Run the complete workflow"""
+        start_time = datetime.now()
         logger.info("\n" + "=" * 60)
         logger.info("STARTING DEEP RESEARCH ORCHESTRATOR WORKFLOW")
+        logger.info(f"Process started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("=" * 60 + "\n")
 
         # Step 1: Retrieve new Slack messages
@@ -356,13 +445,18 @@ Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         self.mark_message_processed(message, report_url=report_url, success=True)
         logger.info("Message marked as processed after URL retrieval")
 
-        # Step 4: Schedule report retrieval for 20 minutes later
+        # Step 4: Schedule report retrieval for 9 minutes later
         self.step4_schedule_report_retrieval(report_url, message)
 
         logger.info("\n" + "=" * 60)
         logger.info("WORKFLOW INITIATED SUCCESSFULLY")
-        logger.info(f"Report retrieval scheduled for 20 minutes from now")
-        logger.info("The orchestrator will continue running to handle the scheduled task")
+        current_time = datetime.now()
+        report_ready_time = current_time + timedelta(minutes=10)
+        retrieval_time = current_time + timedelta(minutes=9)
+        logger.info(f"Report URL: {report_url}")
+        logger.info(f"Report will be ready at: {report_ready_time.strftime('%H:%M:%S')} (in 10 minutes)")
+        logger.info(f"Retrieval scheduled for: {retrieval_time.strftime('%H:%M:%S')} (in 9 minutes)")
+        logger.info("The orchestrator will continue running until report is sent")
         logger.info("=" * 60 + "\n")
 
         return True
@@ -407,18 +501,18 @@ def main():
 
         # If a report was scheduled, wait for it to complete
         if orchestrator.pending_reports:
-            logger.info("Waiting for scheduled report retrieval (20 minutes)...")
+            logger.info("Waiting for scheduled report retrieval (9 minutes)...")
             logger.info("The process will exit automatically after report is sent")
 
-            # Wait for up to 25 minutes (20 min + 5 min buffer for processing)
-            max_wait = 1500  # 25 minutes in seconds
+            # Wait for up to 12 minutes (9 min + 3 min buffer for processing)
+            max_wait = 720  # 12 minutes in seconds
             start_time = time.time()
 
             while orchestrator.pending_reports and (time.time() - start_time) < max_wait:
                 time.sleep(10)  # Check every 10 seconds
 
             if orchestrator.pending_reports:
-                logger.warning("Report retrieval timed out after 25 minutes")
+                logger.warning("Report retrieval timed out after 12 minutes")
             else:
                 logger.info("All scheduled tasks completed successfully")
         else:

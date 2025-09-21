@@ -125,6 +125,33 @@ class ConcurrentDeepResearchOrchestrator:
                 ).first()
 
                 if message:
+                    # Check if this is a system message
+                    system_message_patterns = [
+                        "has joined the channel",
+                        "has left the channel",
+                        "set the channel topic",
+                        "set the channel description",
+                        "pinned a message",
+                        "unpinned a message",
+                        "archived the channel",
+                        "unarchived the channel",
+                        "renamed the channel",
+                        "set the channel purpose",
+                        "cleared the channel topic",
+                        "cleared the channel purpose"
+                    ]
+
+                    is_system_message = any(pattern in message.text.lower() for pattern in system_message_patterns)
+
+                    if is_system_message:
+                        self.logger.info(f"Skipping system message: {message.text[:100]}...")
+                        # Mark as processed to skip it permanently
+                        message.processed = True
+                        message.processed_at = datetime.utcnow()
+                        self.db_session.commit()
+                        # Return None to try next message
+                        return None
+
                     # Immediately mark as processed to prevent other instances from taking it
                     message.processed = True
                     message.processed_at = datetime.utcnow()
