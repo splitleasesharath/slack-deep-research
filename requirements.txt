@@ -1,0 +1,21 @@
+# Deep Research Orchestrator - Python Requirements
+# Python 3.8+ required
+
+# Core Dependencies
+slack-sdk==3.26.1
+python-dotenv==1.0.0
+SQLAlchemy==2.0.25
+
+# Database Drivers (SQLite is built-in)
+psycopg2-binary==2.9.9  # Optional: For PostgreSQL
+pymysql==1.1.0  # Optional: For MySQL
+
+# Scheduling and Threading
+schedule==1.2.0
+filelock==3.13.1  # For concurrent session management
+
+# Image Processing (Optional)
+Pillow>=10.0.0  # Optional: for image generation in tests
+
+# Additional utilities
+requests>=2.31.0  # For HTTP requests if needed

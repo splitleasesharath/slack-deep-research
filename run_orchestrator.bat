@@ -13,11 +13,11 @@ echo The process will:
 echo 1. Retrieve Slack messages
 echo 2. Process oldest unprocessed message
 echo 3. Generate deep research
-echo 4. Wait 9 minutes for report generation
+echo 4. Wait 22 minutes for report generation
 echo 5. Retrieve and send report to Slack
 echo 6. Exit automatically when complete
 echo.
-echo Expected completion time: ~10-12 minutes
+echo Expected completion time: ~23-25 minutes
 echo =========================================
 echo.
 
