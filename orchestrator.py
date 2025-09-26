@@ -274,11 +274,11 @@ class DeepResearchOrchestrator:
                         else:
                             logger.warning(f"Max retries ({max_retries}) reached. Sending partial report.")
 
-                    # Report is sent to Slack by retrieve_report.js
-                    # self.send_report_to_slack(report_content, message)  # Commented out to prevent duplicate
+                    # Send report to Slack
+                    self.send_report_to_slack(report_content, message)
 
                     # Message was already marked as processed when URL was retrieved
-                    logger.info("Report retrieved and sent via retrieve_report.js")
+                    logger.info("Report retrieved and sent to Slack")
 
                 else:
                     logger.error("No report files found")
@@ -361,49 +361,38 @@ class DeepResearchOrchestrator:
         return False
 
     def send_report_to_slack(self, report_content, original_message):
-        """Send the report to Slack as a reply or new message"""
+        """Send the report to Slack as a reply to the original message thread"""
         try:
             # Calculate report size
             report_size = len(report_content)
-            max_chunk_size = 35000  # Leave room for formatting
+            max_chunk_size = 35000  # Leave room for formatting (Slack limit is 40k)
 
-            # Create header message
-            header_message = f"""📊 **Deep Research Report Generated**
+            # Simple header for the report
+            header_message = f"Deep Research Report completed (splitleaseteam@gmail.com)\n\n"
 
-Original Request: {original_message.text[:200]}...
-Requested by: @{original_message.username}
-Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Report Size: {report_size:,} characters
-
----
-"""
+            # Determine the thread_ts to use
+            thread_ts = original_message.thread_ts if original_message.thread_ts else original_message.ts
 
             # Split report into chunks if needed
             if report_size <= max_chunk_size:
                 # Single message if report is small enough
                 formatted_message = header_message + report_content
 
-                # Send to Slack
-                if original_message.thread_ts:
-                    response = self.slack_client.reply_to_thread(
-                        thread_ts=original_message.thread_ts,
-                        text=formatted_message
-                    )
-                else:
-                    response = self.slack_client.send_message(
-                        text=formatted_message,
-                        channel=original_message.channel_id
-                    )
+                # Always send as a reply to maintain thread
+                response = self.slack_client.reply_to_thread(
+                    thread_ts=thread_ts,
+                    text=formatted_message,
+                    channel=original_message.channel_id
+                )
 
-                logger.info("Report sent as single message")
+                logger.info(f"Report sent as single message to thread {thread_ts}")
 
             else:
-                # Split into multiple messages
+                # Split into multiple messages for large reports
                 chunks = []
-                current_pos = 0
 
                 # Calculate number of parts
-                num_parts = (report_size // max_chunk_size) + 1
+                num_parts = (report_size // max_chunk_size) + (1 if report_size % max_chunk_size else 0)
 
                 # Create chunks
                 for i in range(num_parts):
@@ -411,39 +400,32 @@ Report Size: {report_size:,} characters
                     end = min((i + 1) * max_chunk_size, report_size)
                     chunk = report_content[start:end]
 
-                    # Add continuation markers
+                    # Add header to first chunk, continuation marker to others
                     if i == 0:
                         chunk_message = header_message + chunk
                     else:
-                        chunk_message = f"📄 **Report Continuation (Part {i+1}/{num_parts})**\n\n{chunk}"
+                        chunk_message = f"[Part {i+1}/{num_parts}]\n\n{chunk}"
 
                     chunks.append(chunk_message)
 
-                # Send first chunk to establish thread
-                if original_message.thread_ts:
+                # Send all chunks as replies to the original thread
+                for i, chunk in enumerate(chunks):
                     response = self.slack_client.reply_to_thread(
-                        thread_ts=original_message.thread_ts,
-                        text=chunks[0]
-                    )
-                    thread_ts = original_message.thread_ts
-                else:
-                    response = self.slack_client.send_message(
-                        text=chunks[0],
+                        thread_ts=thread_ts,
+                        text=chunk,
                         channel=original_message.channel_id
                     )
-                    thread_ts = response.get('ts') if response and response.get('ok') else None
 
-                # Send remaining chunks as thread replies
-                if thread_ts and response and response.get('ok'):
-                    for i, chunk in enumerate(chunks[1:], 1):
-                        time.sleep(0.5)  # Small delay to avoid rate limits
-                        self.slack_client.reply_to_thread(
-                            thread_ts=thread_ts,
-                            text=chunk
-                        )
+                    if response and response.get('ok'):
                         logger.info(f"Sent report part {i+1}/{num_parts}")
+                    else:
+                        logger.error(f"Failed to send part {i+1}: {response}")
 
-                logger.info(f"Report sent in {num_parts} parts")
+                    # Small delay between messages to avoid rate limits
+                    if i < len(chunks) - 1:
+                        time.sleep(0.5)
+
+                logger.info(f"Report sent in {num_parts} parts to thread {thread_ts}")
 
             if response and response.get('ok'):
                 logger.info(f"Report delivery completed successfully")
@@ -495,6 +477,38 @@ Report Size: {report_size:,} characters
                 self.db_session.commit()
                 if success:
                     logger.info(f"Message {message.ts} marked as processed")
+
+                    # Send confirmation message to Slack with estimated completion time
+                    try:
+                        if report_url:
+                            confirmation_text = f"Research request will be ready in 23 minutes here and at {report_url} (splitleaseteam@gmail.com)"
+                        else:
+                            confirmation_text = "Research request will be ready in 23 minutes. (splitleaseteam@gmail.com)"
+
+                        # Send confirmation reply
+                        if message.thread_ts:
+                            # Reply in existing thread
+                            response = self.slack_client.reply_to_thread(
+                                thread_ts=message.thread_ts,
+                                text=confirmation_text,
+                                channel=message.channel_id
+                            )
+                        else:
+                            # Reply as new thread to the original message
+                            response = self.slack_client.reply_to_thread(
+                                thread_ts=message.ts,  # Use message ts as thread_ts for first reply
+                                text=confirmation_text,
+                                channel=message.channel_id
+                            )
+
+                        if response and response.get('ok'):
+                            logger.info(f"Sent processing confirmation to Slack for message {message.ts}")
+                        else:
+                            logger.warning(f"Failed to send confirmation: {response}")
+
+                    except Exception as e:
+                        logger.error(f"Error sending confirmation to Slack: {e}")
+                        # Don't fail the whole process if confirmation fails
 
         except Exception as e:
             logger.error(f"Error marking message as processed: {e}")
