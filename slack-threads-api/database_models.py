@@ -15,6 +15,7 @@ class SlackMessage(Base):
     user_id = Column(String(20), index=True)
     username = Column(String(100))
     text = Column(Text)
+    improved_message = Column(Text)  # Enhanced prompt with critical thinking elements
     message_type = Column(String(20))
 
     sent_timestamp = Column(Float, nullable=False)

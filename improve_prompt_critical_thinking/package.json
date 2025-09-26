@@ -1,0 +1,15 @@
+{
+  "name": "message-improver",
+  "version": "1.0.0",
+  "description": "A tool to improve messages using OpenAI API",
+  "main": "improve_message.js",
+  "scripts": {
+    "start": "node improve_message.js"
+  },
+  "dependencies": {
+    "openai": "^4.20.0",
+    "dotenv": "^16.3.1"
+  },
+  "author": "",
+  "license": "MIT"
+}

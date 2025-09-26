@@ -125,6 +125,65 @@ class DeepResearchOrchestrator:
             logger.error(f"Error getting unprocessed message: {e}")
             return None
 
+    def step2b_improve_prompt(self, message):
+        """Step 2B: Improve the prompt using critical thinking enhancement"""
+        logger.info("=" * 60)
+        logger.info("STEP 2B: Enhancing prompt with critical thinking")
+        logger.info("=" * 60)
+
+        try:
+            logger.info(f"Original prompt: {message.text[:100]}...")
+
+            # Run the improve_message.js tool from the improve_prompt_critical_thinking directory
+            improve_tool_dir = Path(__file__).parent / "improve_prompt_critical_thinking"
+
+            result = subprocess.run(
+                ["node", "improve_message.js", message.text],
+                cwd=str(improve_tool_dir),
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                timeout=30
+            )
+
+            if result.returncode == 0:
+                improved = result.stdout.strip()
+
+                if improved and len(improved) > 10:  # Basic validation
+                    # Update database with improved message
+                    from database_models import SlackMessage
+
+                    db_message = self.db_session.query(SlackMessage).filter(
+                        SlackMessage.ts == message.ts
+                    ).first()
+
+                    if db_message:
+                        db_message.improved_message = improved
+                        self.db_session.commit()
+                        message.improved_message = improved  # Update in-memory object
+                        logger.info(f"Improved prompt created ({len(improved)} chars)")
+                        logger.info(f"Improved prompt preview: {improved[:200]}...")
+                        return improved
+                    else:
+                        logger.warning("Could not find message in database to update")
+                        return message.text
+                else:
+                    logger.warning("Improved prompt was empty or too short")
+                    return message.text
+            else:
+                logger.warning(f"Prompt improvement tool failed: {result.stderr}")
+                return message.text
+
+        except subprocess.TimeoutExpired:
+            logger.error("Prompt improvement timed out after 30 seconds")
+            return message.text
+        except FileNotFoundError:
+            logger.error("improve_message.js not found. Check if improve_prompt_critical_thinking is set up correctly.")
+            return message.text
+        except Exception as e:
+            logger.error(f"Error improving prompt: {e}")
+            return message.text
+
     def step3_generate_deep_research(self, message):
         """Step 3: Run deep research with the message content"""
         logger.info("=" * 60)
@@ -132,8 +191,14 @@ class DeepResearchOrchestrator:
         logger.info("=" * 60)
 
         try:
-            # Prepare the search query from the message
-            search_query = message.text
+            # Use improved message if available, otherwise use original text
+            search_query = getattr(message, 'improved_message', None) or message.text
+
+            # Log which prompt is being used
+            if hasattr(message, 'improved_message') and message.improved_message:
+                logger.info("Using enhanced prompt for deep research")
+            else:
+                logger.info("Using original prompt for deep research (no enhancement available)")
 
             # Create modified version of deep-research script
             script_path = self.playwright_dir / "deep-research-dynamic.js"
@@ -532,6 +597,9 @@ class DeepResearchOrchestrator:
         if not message:
             logger.info("No messages to process. Workflow complete.")
             return True
+
+        # Step 2B: Improve the prompt using critical thinking
+        self.step2b_improve_prompt(message)
 
         # Step 3: Generate deep research
         report_url = self.step3_generate_deep_research(message)
