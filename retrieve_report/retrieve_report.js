@@ -42,16 +42,104 @@ async function retrieveReport(url) {
         // Wait for content to load
         await page.waitForTimeout(5000);
 
-        // Extract the ENTIRE page content
-        reportContent = await page.evaluate(() => {
-            // Simply return all text content from the page
-            return document.body.innerText || '';
-        });
+        // Try to find the specific Deep Research report container
+        const selectors = [
+            // Primary selector: Look for the markdown container with the specific ID
+            '#extended-response-markdown-content',
+            // Fallback selector 1: Look for markdown main panel class
+            '.markdown.markdown-main-panel',
+            // Fallback selector 2: Look for message content with markdown
+            'message-content .markdown',
+            // Fallback selector 3: Look for any markdown container in the response
+            '.response-container-content .markdown',
+            // Last resort: Look for any div with markdown class
+            'div.markdown'
+        ];
+
+        let extractedContent = '';
+        let selectorUsed = '';
+
+        // Try each selector in order until we find content
+        for (const selector of selectors) {
+            try {
+                const element = await page.$(selector);
+                if (element) {
+                    const content = await page.evaluate(el => {
+                        // Get text content, preserving structure
+                        return el.innerText || el.textContent || '';
+                    }, element);
+
+                    if (content && content.length > 500) { // Ensure we have substantial content
+                        extractedContent = content;
+                        selectorUsed = selector;
+                        break;
+                    }
+                }
+            } catch (e) {
+                // Continue to next selector
+                console.log(`  Selector "${selector}" didn't work, trying next...`);
+            }
+        }
+
+        // If specific selectors didn't work, fall back to broader extraction
+        if (!extractedContent) {
+            console.log('⚠️ Specific selectors failed, attempting pattern-based extraction...');
+
+            // Try to get content from the response container by pattern matching
+            extractedContent = await page.evaluate(() => {
+                // Look for any element that contains the deep research report
+                // Identify by looking for substantial text content with headings
+                const containers = document.querySelectorAll('[class*="response"], [class*="message"], [class*="markdown"]');
+
+                for (const container of containers) {
+                    const text = container.innerText || container.textContent || '';
+                    // Check if this looks like a research report (has headings and substantial content)
+                    if (text.length > 1000 &&
+                        (text.includes('Executive Summary') ||
+                         text.includes('Section') ||
+                         text.includes('Research') ||
+                         text.includes('## ') ||
+                         text.includes('### '))) {
+                        return text;
+                    }
+                }
+
+                return ''; // Return empty if pattern matching fails
+            });
+
+            if (extractedContent) {
+                selectorUsed = 'pattern-based-extraction';
+            }
+        }
+
+        // Ultimate fallback: Extract entire page text if all targeted methods fail
+        if (!extractedContent) {
+            console.log('⚠️ All targeted extraction methods failed.');
+            console.log('📄 Falling back to extracting entire page text...');
+
+            extractedContent = await page.evaluate(() => {
+                return document.body.innerText || document.body.textContent || '';
+            });
+
+            selectorUsed = 'full-page-fallback';
+
+            if (extractedContent) {
+                console.log('✅ Successfully extracted full page content as fallback');
+            }
+        }
+
+        reportContent = extractedContent;
 
         if (reportContent && reportContent.length > 1000) {
-            console.log(`✅ Extracted Deep Research report (${reportContent.length} characters)`);
+            console.log(`✅ Extracted Deep Research report using selector: "${selectorUsed}"`);
+            console.log(`   Report length: ${reportContent.length} characters`);
+
+            // Log first 200 characters as preview
+            const preview = reportContent.substring(0, 200).replace(/\n/g, ' ');
+            console.log(`   Preview: "${preview}..."`);
         } else if (reportContent) {
             console.log(`⚠️ Report content seems too short (${reportContent.length} characters)`);
+            console.log(`   Selector used: "${selectorUsed}"`);
         } else {
             console.log('❌ Could not find Deep Research report content');
             reportContent = 'Unable to extract report content. Please check the page manually.';
