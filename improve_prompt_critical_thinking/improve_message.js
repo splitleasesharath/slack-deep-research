@@ -47,7 +47,7 @@ async function improvePromptWithCriticalThinking(originalPrompt) {
                     content: originalPrompt
                 }
             ],
-            temperature: 0.7,
+            temperature: 1,  // GPT-5 only supports default temperature
             max_completion_tokens: 1000
         });
 
@@ -82,7 +82,7 @@ Return ONLY the improved message, without any explanations or additional text.`;
                     content: prompt
                 }
             ],
-            temperature: 0.7,
+            temperature: 1,  // GPT-5 only supports default temperature
             max_completion_tokens: 1000
         });
 

@@ -234,6 +234,7 @@ class DeepResearchOrchestrator:
             logger.info(f"Running deep research for: {search_query[:100]}...")
 
             # Execute the script
+            logger.info("Executing deep research script (timeout: 5 minutes)...")
             result = subprocess.run(
                 ["node", str(script_path)],
                 cwd=str(self.playwright_dir),
@@ -243,9 +244,16 @@ class DeepResearchOrchestrator:
                 errors='replace',
                 timeout=300  # 5 minute timeout
             )
+            logger.info("Deep research script execution completed")
 
             if result.returncode == 0:
                 logger.info("Deep research script completed successfully")
+
+                # Log script output for debugging
+                if result.stdout:
+                    logger.info(f"Script output: {result.stdout[:500]}")
+                if result.stderr:
+                    logger.warning(f"Script stderr: {result.stderr[:500]}")
 
                 # Read the captured URL
                 url_file = self.playwright_dir / "deep-research-start-url.json"
@@ -258,9 +266,15 @@ class DeepResearchOrchestrator:
                     return report_url
                 else:
                     logger.error("URL file not found after deep research")
+                    # List files in directory for debugging
+                    logger.error(f"Files in {self.playwright_dir}: {list(self.playwright_dir.glob('*.json'))}")
                     return None
             else:
-                logger.error(f"Deep research script failed: {result.stderr}")
+                logger.error(f"Deep research script failed with code {result.returncode}")
+                if result.stdout:
+                    logger.error(f"Script output: {result.stdout[:500]}")
+                if result.stderr:
+                    logger.error(f"Script stderr: {result.stderr[:500]}")
                 return None
 
         except subprocess.TimeoutExpired:
