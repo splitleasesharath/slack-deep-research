@@ -225,6 +225,12 @@ class DeepResearchOrchestrator:
             with open(script_path, 'w', encoding='utf-8') as f:
                 f.write(script_content)
 
+            # Delete old URL file to ensure we get fresh results
+            url_file = self.playwright_dir / "deep-research-start-url.json"
+            if url_file.exists():
+                url_file.unlink()
+                logger.info("Deleted old URL file to ensure fresh results")
+
             logger.info(f"Running deep research for: {search_query[:100]}...")
 
             # Execute the script
