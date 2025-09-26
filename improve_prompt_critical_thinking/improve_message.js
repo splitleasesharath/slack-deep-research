@@ -36,7 +36,7 @@ Remember: Output ONLY the improved prompt text, nothing else.`;
 async function improvePromptWithCriticalThinking(originalPrompt) {
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4",
+            model: "gpt-5",
             messages: [
                 {
                     role: "system",
@@ -48,7 +48,7 @@ async function improvePromptWithCriticalThinking(originalPrompt) {
                 }
             ],
             temperature: 0.7,
-            max_tokens: 1000
+            max_completion_tokens: 1000
         });
 
         return response.choices[0].message.content.trim();
@@ -83,7 +83,7 @@ Return ONLY the improved message, without any explanations or additional text.`;
                 }
             ],
             temperature: 0.7,
-            max_tokens: 1000
+            max_completion_tokens: 1000
         });
 
         return response.choices[0].message.content.trim();

@@ -209,8 +209,15 @@ class DeepResearchOrchestrator:
                 script_content = f.read()
 
             # Replace the hardcoded search query with the message content
+            # Escape special characters for JavaScript string
+            escaped_query = search_query.replace('\\', '\\\\')  # Escape backslashes first
+            escaped_query = escaped_query.replace('"', '\\"')   # Escape quotes
+            escaped_query = escaped_query.replace('\n', '\\n')  # Escape newlines
+            escaped_query = escaped_query.replace('\r', '\\r')  # Escape carriage returns
+            escaped_query = escaped_query.replace('\t', '\\t')  # Escape tabs
+
             old_query = 'const searchQuery = "Deep research for Lemmings the game and being stuck with the same tool or approach in problem-solving";'
-            new_query = f'const searchQuery = "{search_query.replace('"', '\\"')}";'
+            new_query = f'const searchQuery = "{escaped_query}";'
 
             script_content = script_content.replace(old_query, new_query)
 
